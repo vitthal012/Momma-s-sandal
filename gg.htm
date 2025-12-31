@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Dodge: The Sandal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #00d2ff;
+            --secondary: #ff2a6d;
+            --bg-overlay: rgba(20, 20, 40, 0.75);
+        }
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #1a1a2e; 
+            font-family: 'Poppins', sans-serif; 
+        }
+        
+        /* Aesthetic UI Container */
+        .ui-container {
+            position: absolute;
+            padding: 15px 25px;
+            background: var(--bg-overlay);
+            backdrop-filter: blur(10px); /* Frosted glass effect */
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.1);
+            color: white;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+
+        #score-box {
+            top: 20px;
+            left: 20px;
+            font-size: 20px;
+            font-weight: bold;
+            z-index: 10;
+        }
+
+        #score { color: var(--primary); }
+
+        /* Full Screen Overlays */
+        #gameOverScreen, #startScreen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 10, 25, 0.9);
+            backdrop-filter: blur(5px);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 20;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 50px; margin: 0;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 20px rgba(0, 210, 255, 0.5);
+        }
+
+        p { font-size: 20px; color: #ccc; margin-bottom: 30px; }
+
+        /* Aesthetic Button */
+        button {
+            padding: 15px 50px;
+            font-size: 20px;
+            font-family: 'Poppins', sans-serif;
+            font-weight: bold;
+            background: linear-gradient(45deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 0 15px var(--primary);
+        }
+        button:hover { transform: scale(1.05); box-shadow: 0 0 25px var(--secondary); }
+        button:active { transform: scale(0.95); }
+
+        /* Floating Message */
+        .powerup-msg {
+            position: absolute;
+            bottom: 15%;
+            width: 100%;
+            text-align: center;
+            font-size: 28px;
+            font-weight: bold;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            opacity: 0;
+            transition: opacity 0.5s, transform 0.5s;
+            pointer-events: none;
+            z-index: 5;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+<div id="score-box" class="ui-container">
+    SCORE: <span id="score">0</span>
+</div>
+<div id="msg" class="powerup-msg"></div>
+
+<div id="gameOverScreen" style="display: none;">
+    <h1>VIBE CHECK FAILED</h1>
+    <p>The sandal connected.</p>
+    <p>Final Score: <span id="finalScore" style="color:var(--primary)">0</span></p>
+    <button onclick="resetGame()">TRY AGAIN</button>
+</div>
+
+<script>
+    // --- 1. AESTHETIC SCENE SETUP ---
+    const scene = new THREE.Scene();
+    // Deep space/twilight color
+    const fogColor = new THREE.Color(0x2b1a3d); 
+    scene.background = fogColor;
+    // Exponential fog for smoother fade into distance
+    scene.fog = new THREE.FogExp2(fogColor, 0.02); 
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 35, 30); // Slightly higher angle
+    camera.lookAt(0, 0, 5);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    // Softer shadows
+    renderer.shadowMap.type = THREE.SoftShadowMap; 
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    document.body.appendChild(renderer.domElement);
+
+    // Lighting
+    const ambientLight = new THREE.AmbientLight(0x4a3b5c, 0.8); // Purple-ish ambient
+    scene.add(ambientLight);
+
+    // Main directional light (warm sunlight contrasting cool scene)
+    const dirLight = new THREE.DirectionalLight(0xffd1dc, 1); 
+    dirLight.position.set(20, 30, 20);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048; // Higher res shadows
+    dirLight.shadow.mapSize.height = 2048;
+    dirLight.shadow.camera.left = -40;
+    dirLight.shadow.camera.right = 40;
+    dirLight.shadow.camera.top = 40;
+    dirLight.shadow.camera.bottom = -40;
+    scene.add(dirLight);
+
+    // Aesthetic Floor
+    const floorGeo = new THREE.PlaneGeometry(200, 200);
+    // Reflective, dark, metallic material
+    const floorMat = new THREE.MeshStandardMaterial({ 
+        color: 0x1a1a2e, 
+        roughness: 0.2, 
+        metalness: 0.8
+    });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    // Glowing Grid
+    // Cyan center line, Magenta grid lines
+    const grid = new THREE.GridHelper(200, 100, 0x00d2ff, 0x520085); 
+    grid.material.transparent = true;
+    grid.material.opacity = 0.4;
+    scene.add(grid);
+
+    // --- 2. GAME VARIABLES ---
+    let gameRunning = false;
+    let score = 0;
+    let frame = 0;
+    let difficulty = 1;
+    
+    const keys = { w: false, a: false, s: false, d: false };
+    window.addEventListener('keydown', (e) => setKey(e.key, true));
+    window.addEventListener('keyup', (e) => setKey(e.key, false));
+    function setKey(k, bool) {
+        if(k === 'ArrowUp' || k.toLowerCase() === 'w') keys.w = bool;
+        if(k === 'ArrowDown' || k.toLowerCase() === 's') keys.s = bool;
+        if(k === 'ArrowLeft' || k.toLowerCase() === 'a') keys.a = bool;
+        if(k === 'ArrowRight' || k.toLowerCase() === 'd') keys.d = bool;
+    }
+
+    // Texture Generator for Emojis (Kept for character charm)
+    function createEmojiSprite(emoji, size) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 256; canvas.height = 256; // Higher res sprites
+        const ctx = canvas.getContext('2d');
+        ctx.font = '180px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        // Add a slight glow to sprites
+        ctx.shadowColor = "#00d2ff";
+        ctx.shadowBlur = 20;
+        ctx.fillText(emoji, 128, 128);
+        
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.encoding = THREE.sRGBEncoding;
+        const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+        const sprite = new THREE.Sprite(mat);
+        sprite.scale.set(size, size, 1);
+        return sprite;
+    }
+
+    // --- 3. ENTITIES ---
+
+    // PLAYER GROUP
+    const playerGroup = new THREE.Group();
+    const playerSprite = createEmojiSprite('👦', 5);
+    playerSprite.position.y = 2.5;
+    
+    // Simple shadow blob
+    const shadowGeo = new THREE.CircleGeometry(2, 32);
+    const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, opacity: 0.5, transparent: true });
+    const playerShadow = new THREE.Mesh(shadowGeo, shadowMat);
+    playerShadow.rotation.x = -Math.PI / 2;
+    playerShadow.position.y = 0.1;
+    
+    // Aesthetic Shield Sphere
+    const shieldGeo = new THREE.SphereGeometry(3.5, 32, 32);
+    // Glowing, transparent material
+    const shieldMat = new THREE.MeshPhongMaterial({ 
+        color: 0x00d2ff, 
+        transparent: true, 
+        opacity: 0, 
+        shininess: 100,
+        emissive: 0x00d2ff,
+        emissiveIntensity: 0.2
+    });
+    const shieldMesh = new THREE.Mesh(shieldGeo, shieldMat);
+    shieldMesh.position.y = 2.5;
+
+    // Add a subtle light following the player
+    const playerLight = new THREE.PointLight(0x00d2ff, 0.5, 15);
+    playerLight.position.y = 5;
+    playerGroup.add(playerLight);
+
+    playerGroup.add(playerSprite, playerShadow, shieldMesh);
+    scene.add(playerGroup);
+
+    const player = {
+        obj: playerGroup,
+        speed: 0.5,
+        baseSpeed: 0.5,
+        isShielded: false,
+        shieldTimer: 0
+    };
+
+    // MOTHER Sprite
+    const motherSprite = createEmojiSprite('👩', 7);
+    motherSprite.position.set(0, 3.5, -25);
+    scene.add(motherSprite);
+    
+    const mother = {
+        obj: motherSprite,
+        dx: 0.25,
+        bobTimer: 0
+    };
+
+    let sandals = [];
+    let powerups = [];
+
+    // --- 4. LOGIC FUNCTIONS ---
+
+    function spawnSandal() {
+        // Sandal is still a sprite to keep the look, but we'll rotate its material
+        const sandalSprite = createEmojiSprite('🩴', 3);
+        sandalSprite.position.copy(mother.obj.position);
+        sandalSprite.position.y -= 1; // Throw from hands height
+        
+        const target = new THREE.Vector3(player.obj.position.x, 2.5, player.obj.position.z);
+        // Add slight randomness to aim
+        target.x += (Math.random() - 0.5) * 5;
+        const dir = new THREE.Vector3().subVectors(target, sandalSprite.position).normalize();
+        
+        const speed = (0.4 + Math.random() * 0.3) * difficulty;
+
+        scene.add(sandalSprite);
+        sandals.push({ mesh: sandalSprite, velocity: dir.multiplyScalar(speed), rotSpeed: Math.random() * 0.3 });
+    }
+
+    function spawnPowerup() {
+        const types = [
+            { type: 'speed', emoji: '⚡', color: 0xffff00 }, // Yellow
+            { type: 'shield', emoji: '🛡️', color: 0x00d2ff }, // Cyan
+            { type: 'slow', emoji: '❄️', color: 0xffffff }  // White
+        ];
+        const data = types[Math.floor(Math.random() * types.length)];
+        
+        // AESTHETIC UPDATE: Powerups are glowing crystals (Octahedrons)
+        const geo = new THREE.OctahedronGeometry(1.5, 0);
+        const mat = new THREE.MeshStandardMaterial({ 
+            color: data.color,
+            emissive: data.color, // Make them glow
+            emissiveIntensity: 0.5,
+            metalness: 0.5,
+            roughness: 0.1
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        
+        mesh.position.set(
+            (Math.random() - 0.5) * 50,
+            2,
+            (Math.random() - 0.5) * 30
+        );
+        mesh.castShadow = true;
+
+        // Add a small point light to the powerup itself
+        const pLight = new THREE.PointLight(data.color, 1, 10);
+        mesh.add(pLight);
+
+        // Floating Emoji Icon above crystal
+        const icon = createEmojiSprite(data.emoji, 2);
+        icon.position.y = 3;
+        mesh.add(icon);
+
+        scene.add(mesh);
+        powerups.push({ mesh: mesh, type: data.type, bobOffset: Math.random() * Math.PI });
+    }
+
+    function showMsg(text, colorStr) {
+        const el = document.getElementById('msg');
+        el.innerText = text;
+        el.style.color = colorStr;
+        el.style.opacity = 1;
+        el.style.transform = "translateY(0px)";
+        // Pop up animation
+        setTimeout(() => {
+             el.style.opacity = 0;
+             el.style.transform = "translateY(-20px)";
+        }, 2000);
+    }
+
+    function updatePhysics() {
+        // Player Move with slight inertia feel
+        let dx = 0, dz = 0;
+        if(keys.a) dx -= player.speed;
+        if(keys.d) dx += player.speed;
+        if(keys.w) dz -= player.speed;
+        if(keys.s) dz += player.speed;
+        
+        player.obj.position.x += dx;
+        player.obj.position.z += dz;
+        
+        // Tilt player slightly based on movement direction for dynamic feel
+        player.obj.rotation.z = -dx * 0.5;
+        player.obj.rotation.x = dz * 0.5;
+
+
+        // Bounds
+        player.obj.position.x = Math.max(-35, Math.min(35, player.obj.position.x));
+        player.obj.position.z = Math.max(-15, Math.min(35, player.obj.position.z));
+
+        // Shield Logic
+        if(player.isShielded) {
+            // Pulse opacity
+            shieldMesh.material.opacity = 0.4 + Math.sin(frame * 0.1) * 0.1;
+            // Rotate shield sphere
+            shieldMesh.rotation.y += 0.02;
+            shieldMesh.rotation.x += 0.01;
+            player.shieldTimer--;
+            if(player.shieldTimer <= 0) {
+                player.isShielded = false;
+                shieldMesh.material.opacity = 0;
+                showMsg("Shield Depleted", "#ff2a6d");
+            }
+        }
+
+        // Mother Move & Bob animation
+        mother.bobTimer += 0.05;
+        mother.obj.position.y = 3.5 + Math.sin(mother.bobTimer) * 0.3; // Bob up and down
+        mother.obj.position.x += mother.dx * difficulty;
+        if(mother.obj.position.x > 30 || mother.obj.position.x < -30) mother.dx *= -1;
+
+        // Sandals Update
+        for (let i = sandals.length - 1; i >= 0; i--) {
+            const s = sandals[i];
+            s.mesh.position.add(s.velocity);
+            s.mesh.material.rotation += s.rotSpeed; // Spin the sprite texture
+
+            const dist = s.mesh.position.distanceTo(player.obj.position);
+            // Slightly larger hit box for sandals
+            if (dist < 3) {
+                if (player.isShielded) {
+                    scene.remove(s.mesh);
+                    sandals.splice(i, 1);
+                } else {
+                    gameOver();
+                }
+                continue;
+            }
+
+            if (s.mesh.position.z > 50 || Math.abs(s.mesh.position.x) > 50) {
+                scene.remove(s.mesh);
+                sandals.splice(i, 1);
+            }
+        }
+
+        // Powerups Update
+        for (let i = powerups.length - 1; i >= 0; i--) {
+            const p = powerups[i];
+            // Compound rotation for crystal
+            p.mesh.rotation.y += 0.03;
+            p.mesh.rotation.z += 0.01;
+            // Bobbing motion
+            p.mesh.position.y = 2 + Math.sin(frame * 0.05 + p.bobOffset) * 0.5;
+
+            const dist = p.mesh.position.distanceTo(player.obj.position);
+            if (dist < 3.5) {
+                if (p.type === 'speed') {
+                    player.speed = 0.9;
+                    showMsg("⚡ SPEED BOOST!", "#ffff00");
+                    setTimeout(() => player.speed = player.baseSpeed, 3000);
+                }
+                if (p.type === 'shield') {
+                    player.isShielded = true;
+                    player.shieldTimer = 400;
+                    showMsg("🛡️ SHIELD UP!", "#00d2ff");
+                }
+                if (p.type === 'slow') {
+                    sandals.forEach(s => s.velocity.multiplyScalar(0.4));
+                    showMsg("❄️ CHILL OUT!", "#ffffff");
+                }
+
+                scene.remove(p.mesh);
+                powerups.splice(i, 1);
+            }
+        }
+    }
+
+    function gameLoop() {
+        if (!gameRunning) return;
+
+        frame++;
+        score++;
+        document.getElementById('score').innerText = Math.floor(score/10);
+        
+        // Difficulty ramps up slower now
+        difficulty = 1 + (score / 5000); 
+
+        let spawnRate = Math.floor(70 / difficulty);
+        if (frame % Math.max(25, spawnRate) === 0) spawnSandal();
+        // Spawn powerups slightly more often
+        if (frame % 250 === 0) spawnPowerup();
+
+        updatePhysics();
+        renderer.render(scene, camera);
+        requestAnimationFrame(gameLoop);
+    }
+
+    function gameOver() {
+        gameRunning = false;
+        document.getElementById('gameOverScreen').style.display = 'flex';
+        document.getElementById('finalScore').innerText = Math.floor(score/10);
+    }
+
+    window.resetGame = function() {
+        gameRunning = true;
+        score = 0;
+        frame = 0;
+        difficulty = 1;
+        player.obj.position.set(0, 0, 15);
+        player.obj.rotation.set(0,0,0);
+        player.isShielded = false;
+        player.speed = player.baseSpeed;
+        shieldMesh.material.opacity = 0;
+
+        sandals.forEach(s => scene.remove(s.mesh));
+        powerups.forEach(p => scene.remove(p.mesh));
+        sandals = [];
+        powerups = [];
+
+        document.getElementById('gameOverScreen').style.display = 'none';
+        requestAnimationFrame(gameLoop);
+    }
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Start game
+    resetGame();
+
+</script>
+</body>
+</html>
